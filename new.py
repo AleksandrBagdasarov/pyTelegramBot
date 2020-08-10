@@ -1,10 +1,10 @@
+import requests
 import telebot
-from telebot import types
 import sqlite3
 
 ######################## TELEGRAM API URL #################################
-token = '1070073381:AAE1Hu8uysrlKkYhvY3QdkIS6Gh4miU343I'
-bot = telebot.TeleBot(token)
+TOKEN = '1070073381:AAE1Hu8uysrlKkYhvY3QdkIS6Gh4miU343I'
+bot = telebot.TeleBot(TOKEN,None,threaded=False)
 ########################## @mu3y3y_bot ####################################
 
 
@@ -43,7 +43,7 @@ class DataBase:
                             (self.user_id,)))[0][0]
 
 
-    def update_bank(self):
+    def upgrade_bank(self):
         dbase = sqlite3.connect('new.db')
         dbase.execute(''' UPDATE records SET BANK=BANK+? 
                     WHERE ID=?''',
@@ -89,11 +89,11 @@ def spent_or_income(message):
         message_id = message.message.message_id   
     keyboard = InLineKeyBoard().spent_or_income()
 
-    bot.delete_message(chat_id=user_id, message_id=message_id-1)
-    bot.delete_message(chat_id=user_id, message_id=message_id)
-    bot.send_message(chat_id=user_id,
-                    text=f'На твоём счету : {user_bank}',
-                    reply_markup=keyboard)
+    delete_msg(user_id, message_id)
+    bot.edit_message_text(chat_id=user_id,
+                                message_id=5022,
+                                text=f'На твоём счету : {user_bank}',
+                                reply_markup=keyboard)
 
 
 @bot.message_handler(func=lambda message: True, content_types=['text'])
@@ -114,16 +114,19 @@ def start(message):
 
 @bot.callback_query_handler(func=lambda call: call.data == 'spent' or call.data == 'income')
 def spent_or_income_2(query):
+    global up
     choice = query.data
     user_id = query.from_user.id
     message_id = query.message.message_id
-    bot.delete_message(chat_id=user_id, message_id=message_id)
+    delete_msg(user_id, message_id)
     if choice == 'spent':        
-        bot_send = bot.send_message(chat_id=user_id, text='Сколько ты потратил?')
-        bot.register_next_step_handler(bot_send, downgrade_bank)
+        bot_send = bot.send_message(chat_id=user_id, text='Сколько ты потратил?') 
+        up = False
+        bot.register_next_step_handler(bot_send, edit_bank)
     else:
         bot_send = bot.send_message(chat_id=user_id, text='Сколько ты заработал?')
-        bot.register_next_step_handler(bot_send, update_bank)
+        up = True
+        bot.register_next_step_handler(bot_send, edit_bank)
 
 
 @bot.callback_query_handler(func=lambda call: call.data == 'stats')  
@@ -134,46 +137,39 @@ def stats(query):
     user_bank = DataBase(user_id=user_id, user_name=user_name, user_bank=None).get_bank()
     keyboard = InLineKeyBoard().home()
 
-    bot.delete_message(chat_id=user_id, message_id=message_id)
+    delete_msg(user_id, message_id)
     bot.send_message(chat_id=user_id,
                     text= f'На твоем счету: {user_bank}.',
                     reply_markup=keyboard)
 
 
-def update_bank(message):
+def edit_bank(message):
     user_id = message.from_user.id
     user_name = message.from_user.first_name
     message_id = message.message_id
     user_bank = message.text
-
-    if user_bank.isdigit() == True: 
-        DataBase(user_id=user_id, user_name=user_name, user_bank=user_bank).update_bank()
-
-        spent_or_income(message)
-    else:
-        bot.delete_message(chat_id=user_id, message_id=message_id-1)
-        bot.delete_message(chat_id=user_id, message_id=message_id)
-        bot_send = bot.send_message(user_id, f'{user_name} введи сумму целыми числами.\nНапример вот так: 80')
-        bot.register_next_step_handler(bot_send, update_bank)
-
-
-def downgrade_bank(message):
-    user_id = message.from_user.id
-    user_name = message.from_user.first_name
-    message_id = message.message_id
-    user_bank = message.text
+    d = DataBase(user_id=user_id, user_name=user_name, user_bank=user_bank)
     
-    if user_bank.isdigit() == True:
-        DataBase(user_id=user_id, user_name=user_name, user_bank=user_bank).downgrade_bank()
-
+    if user_bank.isdigit() and user_bank <= '999999999999999':
+        if up:
+            d.upgrade_bank()
+        else:
+            d.downgrade_bank()
         spent_or_income(message)
+    elif user_bank.isdigit() and user_bank > '999999999999999':
+        delete_msg(user_id, message_id)
+        bot_send = bot.send_message(user_id, f'Я не хочу иметь с тобой дел, {user_name}.')
     else:
-        bot.delete_message(chat_id=user_id, message_id=message_id-1)
-        bot.delete_message(chat_id=user_id, message_id=message_id)
+        delete_msg(user_id, message_id)
         bot_send = bot.send_message(user_id, f'{user_name} введи сумму целыми числами.\nНапример вот так: 80')
-        bot.register_next_step_handler(bot_send, downgrade_bank)
+        bot.register_next_step_handler(bot_send, edit_bank)
 
 
-
+def delete_msg(user_id, message_id):
+    # for messages_id in range(message_id-2, message_id+20):
+    #     payload = {'chat_id': user_id, 'message_id': messages_id}
+    #     request_url = f"https://api.telegram.org/bot{TOKEN}/deleteMessage"
+    #     requests.post(request_url, data=payload)
+    bot.delete_message(chat_id=user_id, message_id=message_id)
 ############################ TELEGRAM BOT POLLING ######################################
 bot.polling(none_stop=True)
